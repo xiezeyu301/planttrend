@@ -35,6 +35,46 @@ plot_correlation_heatmap(frame)
 plot_distribution(frame, columns=["FT301101H.AI1.PV", "FT301103H.AI1.PV"])
 ```
 
+## Class-based usage
+
+If you want to reuse a default plotting config across multiple charts, use the `PlantTrend` client:
+
+```python
+import pandas as pd
+from planttrend import PlantTrend
+
+frame = pd.read_csv("example.csv")
+
+plotter = PlantTrend(
+    config={
+        "style": "industrial",
+        "show": False,
+        "map_dict": {
+            "FT301101H.AI1.PV": "进料流量",
+            "LT301101H.AI1.PV": "液位",
+        },
+    }
+)
+
+plotter.plot_columns(
+    frame,
+    columns=[
+        ["FT301101H.AI1.PV"],
+        [["LT301101H.AI1.PV"], ["FT301103H.AI1.PV"]],
+    ],
+    x="时间",
+)
+
+plotter.plot_distribution(
+    frame,
+    columns=["FT301101H.AI1.PV", "FT301103H.AI1.PV"],
+)
+
+plotter.plot_correlation_heatmap(frame)
+```
+
+`PlantTrend` also exposes `get_config()`, `update_config()`, `reset_config()`, `clone()`, and `describe_config()` for managing shared plotting settings.
+
 ## Style preview
 
 ![planttrend style preview](docs/style-preview.png)

@@ -19,11 +19,17 @@ def _flatten_columns(items):
 
 def _ensure_columns_exist(df, columns, x=None):
     required = set()
-    for item in columns:
-        if isinstance(item, (list, tuple)):
-            required.update(_flatten_columns(item))
-        else:
-            required.add(item)
+
+    def collect_required_columns(items):
+        for item in items:
+            if isinstance(item, dict):
+                raise ValueError('columns must not include dict items; use config.subplots for subplot-specific options.')
+            elif isinstance(item, (list, tuple)):
+                collect_required_columns(item)
+            else:
+                required.add(item)
+
+    collect_required_columns(columns)
 
     if x is not None:
         required.add(x)

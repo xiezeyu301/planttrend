@@ -1,4 +1,8 @@
+from typing import Optional, Tuple
+
 import matplotlib.pyplot as plt
+
+from ._types import StyleName
 
 
 CHINESE_FONT_CANDIDATES = [
@@ -144,11 +148,13 @@ STYLE_PRESETS = {
 }
 
 
-def get_available_styles():
+def get_available_styles() -> Tuple[str, ...]:
+    """Return the names of available plot styles."""
     return tuple(STYLE_PRESETS.keys())
 
 
-def apply_plot_style(style='default', chinese=True, font_family=None):
+def apply_plot_style(style: StyleName = 'default', chinese: bool = True, font_family: Optional[str] = None) -> str:
+    """Apply a predefined matplotlib style preset."""
     if style not in STYLE_PRESETS:
         available = ', '.join(get_available_styles())
         raise ValueError(f'Unknown style: {style}. Available styles: {available}')

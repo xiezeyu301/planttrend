@@ -1,4 +1,9 @@
+from typing import List, Optional, Tuple
+
 import matplotlib.pyplot as plt
+import pandas as pd
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 from ._column_rendering import (
     _add_horizontal_lines,
@@ -30,43 +35,116 @@ from ._column_specs import (
     _select_display_range,
 )
 from ._shared import _ensure_columns_exist, _flatten_columns, _get_color_pool
+from ._types import ColumnPlotConfig, ColumnPlotLayout, FigureSize
 from .labels import get_default_label_map, merge_label_maps
 from .styles import apply_plot_style
 
 
+def _normalize_plot_columns(columns):
+    if not isinstance(columns, (list, tuple)):
+        raise ValueError('columns must be a list or tuple of subplot column definitions.')
+
+    normalized = list(columns)
+    if any(isinstance(item, dict) for item in normalized):
+        raise ValueError('columns must not include dict items; use config.subplots for subplot-specific options.')
+
+    return normalized
+
+
+def _normalize_plot_config(config):
+    if config is None:
+        return {}
+    if not isinstance(config, dict):
+        raise ValueError('config must be a dict or None.')
+
+    normalized = dict(config)
+    if 'map_dict' in normalized and 'label_map' not in normalized:
+        normalized['label_map'] = normalized['map_dict']
+
+    legend = normalized.pop('legend', None)
+    if legend is not None:
+        if not isinstance(legend, dict):
+            raise ValueError('config.legend must be a dict.')
+        if 'loc' in legend and 'legend_loc' not in normalized:
+            normalized['legend_loc'] = legend['loc']
+        if 'outside' in legend and 'legend_outside' not in normalized:
+            normalized['legend_outside'] = legend['outside']
+        if 'use_label_map' in legend and 'legend_use_label_map' not in normalized:
+            normalized['legend_use_label_map'] = legend['use_label_map']
+
+    if 'subplot_options' in normalized and 'subplots' not in normalized:
+        normalized['subplots'] = normalized.pop('subplot_options')
+
+    for reserved_key in ('x', 'columns'):
+        if reserved_key in normalized:
+            raise ValueError(f"Use the plot_columns parameter for '{reserved_key}' instead of config.")
+
+    return normalized
+
+
+def _resolve_figsize(figsize, config):
+    if figsize is not None and any(key in config for key in ('figsize', 'figsize_width', 'figsize_height')):
+        raise ValueError('figsize cannot be provided both as a parameter and in config.')
+
+    if figsize is None:
+        figsize = config.get('figsize')
+        if figsize is None:
+            return config.get('figsize_width', 20), config.get('figsize_height', 3)
+
+    if isinstance(figsize, dict):
+        if 'width' not in figsize or 'height' not in figsize:
+            raise ValueError("figsize dict must include 'width' and 'height'.")
+        return figsize['width'], figsize['height']
+
+    if isinstance(figsize, (list, tuple)) and len(figsize) == 2:
+        return figsize[0], figsize[1]
+
+    raise ValueError('figsize must be a 2-item tuple/list, a dict with width/height, or None.')
+
+
 def plot_columns(
-    df,
-    columns,
-    x='时间',
-    figsize_width=20,
-    figsize_height=3,
-    style='default',
-    label_map=None,
-    chinese=True,
-    font_family=None,
-    legend_loc='auto',
-    legend_outside=False,
-    legend_use_label_map=False,
-    vlines=None,
-    vertical_lines=None,
-    vspaces=None,
-    vertical_spaces=None,
-    hlines=None,
-    horizontal_lines=None,
-    hspaces=None,
-    horizontal_spaces=None,
-    xlim=None,
-    ylim=None,
-    subplot_options=None,
-    display_range=None,
-    figure_title=None,
-    show_vline_values=True,
-    show=True,
-):
+    df: pd.DataFrame,
+    columns: ColumnPlotLayout,
+    x: str = '时间',
+    figsize: Optional[FigureSize] = None,
+    config: Optional[ColumnPlotConfig] = None,
+) -> Tuple[Figure, List[Axes]]:
+    """Plot trend subplots with optional multi-axis layout.
+
+    ``columns`` defines the subplot layout and ``config`` carries global and
+    subplot-local rendering options. Call ``describe_plot_config('columns')`` for
+    the full supported config structure.
+    """
+    subplot_definitions = _normalize_plot_columns(columns)
+    config = _normalize_plot_config(config)
+    figsize_width, figsize_height = _resolve_figsize(figsize, config)
+
+    style = config.get('style', 'default')
+    label_map = config.get('label_map')
+    chinese = config.get('chinese', True)
+    font_family = config.get('font_family')
+    legend_loc = config.get('legend_loc', 'auto')
+    legend_outside = config.get('legend_outside', False)
+    legend_use_label_map = config.get('legend_use_label_map', False)
+    vlines = config.get('vlines')
+    vertical_lines = config.get('vertical_lines')
+    vspaces = config.get('vspaces')
+    vertical_spaces = config.get('vertical_spaces')
+    hlines = config.get('hlines')
+    horizontal_lines = config.get('horizontal_lines')
+    hspaces = config.get('hspaces')
+    horizontal_spaces = config.get('horizontal_spaces')
+    xlim = config.get('xlim')
+    ylim = config.get('ylim')
+    display_range = config.get('display_range')
+    figure_title = config.get('figure_title')
+    show_vline_values = config.get('show_vline_values', True)
+    show = config.get('show', True)
+
     apply_plot_style(style=style, chinese=chinese, font_family=font_family)
     df = _select_display_range(df, display_range)
     label_map = merge_label_maps(get_default_label_map(), label_map)
-    _ensure_columns_exist(df, columns, x=x)
+    _ensure_columns_exist(df, subplot_definitions, x=x)
     vertical_lines = _merge_vertical_lines(vlines=vlines, vertical_lines=vertical_lines)
     vertical_spaces = _merge_vertical_spaces(vspaces=vspaces, vertical_spaces=vertical_spaces)
     horizontal_lines = _merge_horizontal_lines(hlines=hlines, horizontal_lines=horizontal_lines)
@@ -76,14 +154,13 @@ def plot_columns(
     resolved_vertical_lines = _resolve_vertical_line_specs(df, x, vertical_lines)
     resolved_vertical_spaces = _resolve_x_range_specs(df, x, vertical_spaces)
     resolved_x_limits = _resolve_x_range_specs(df, x, x_limits)
-    subplot_options = _normalize_subplot_options(subplot_options, len(columns))
+    subplot_options = _normalize_subplot_options(config.get('subplots'), len(subplot_definitions))
 
-    fig, subplot_axes = _create_subplots(len(columns), figsize_width, figsize_height)
+    fig, subplot_axes = _create_subplots(len(subplot_definitions), figsize_width, figsize_height)
     color_pool = _get_color_pool(style)
 
-    for subplot_index, (base_ax, subplot_spec) in enumerate(zip(subplot_axes, columns)):
-        subplot_option = subplot_options[subplot_index]
-        axis_specs = _normalize_subplot_spec(subplot_spec)
+    for base_ax, subplot_definition, subplot_option in zip(subplot_axes, subplot_definitions, subplot_options):
+        axis_specs = _normalize_subplot_spec(subplot_definition)
         subplot_columns = _flatten_columns(axis_specs)
         axes_list = _create_axes_for_subplot(base_ax, len(axis_specs))
         axis_data_lines = []
